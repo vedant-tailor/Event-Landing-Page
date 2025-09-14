@@ -1,172 +1,283 @@
-import './style.css'
-import gsap from "gsap"
+import * as THREE from 'three';
+import { gsap } from 'gsap';
+import { ScrollToPlugin } from 'gsap/ScrollToPlugin';
 
+// Import shaders
+import vertexShader from './shaders/vertex.glsl?raw';
+import fragmentShader from './shaders/fragment.glsl?raw';
 
-document.addEventListener('DOMContentLoaded', () => {
+class WebGLExperience {
+    constructor(canvas) {
+        this.canvas = canvas;
+        this.sizes = {
+            width: window.innerWidth,
+            height: window.innerHeight
+        };
+        
+        this.init();
+    }
 
-  // --- Feather Icons ---
-  feather.replace();
+    init() {
+        // Scene
+        this.scene = new THREE.Scene();
 
-  // --- Splitting JS for Text Animations ---
-  Splitting();
+        // Camera
+        this.camera = new THREE.PerspectiveCamera(
+            75,
+            this.sizes.width / this.sizes.height,
+            0.1,
+            100
+        );
+        this.camera.position.z = 2.5;
+        this.scene.add(this.camera);
 
-  // --- Preloader ---
-  const preloader = document.getElementById('preloader');
-  window.addEventListener('load', () => {
-      gsap.to(preloader, {
-          opacity: 0,
-          duration: 0.5,
-          onComplete: () => {
-              preloader.style.visibility = 'hidden';
-              preloader.style.display = 'none';
+        // Renderer
+        this.renderer = new THREE.WebGLRenderer({
+            canvas: this.canvas,
+            alpha: true
+        });
+        this.renderer.setSize(this.sizes.width, this.sizes.height);
+        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+        // Clock
+        this.clock = new THREE.Clock();
+
+        // Create the blob
+        this.createBlob();
+
+        // Event listeners
+        window.addEventListener('resize', this.onResize.bind(this));
+
+        // Start the render loop
+        this.tick();
+    }
+
+    createBlob() {
+        // Geometry
+        const geometry = new THREE.IcosahedronGeometry(1, 64);
+
+        // Material
+        this.material = new THREE.ShaderMaterial({
+            vertexShader: vertexShader,
+            fragmentShader: fragmentShader,
+            uniforms: {
+                uTime: { value: 0 },
+                uFrequency: { value: 1.5 },
+                uAmplitude: { value: 0.25 },
+                uColorA: { value: new THREE.Color('#6366f1') }, // Indigo
+                uColorB: { value: new THREE.Color('#ec4899') }  // Pink
+            }
+        });
+
+        // Mesh
+        this.blob = new THREE.Mesh(geometry, this.material);
+        this.scene.add(this.blob);
+    }
+
+    onResize() {
+        // Update sizes
+        this.sizes.width = window.innerWidth;
+        this.sizes.height = window.innerHeight;
+
+        // Update camera
+        this.camera.aspect = this.sizes.width / this.sizes.height;
+        this.camera.updateProjectionMatrix();
+
+        // Update renderer
+        this.renderer.setSize(this.sizes.width, this.sizes.height);
+        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    }
+
+    tick() {
+        // Update uniforms
+        this.material.uniforms.uTime.value = this.clock.getElapsedTime();
+
+        // Render
+        this.renderer.render(this.scene, this.camera);
+
+        // Call tick again on the next frame
+        window.requestAnimationFrame(this.tick.bind(this));
+    }
+}
+
+class UIManager {
+    constructor() {
+        // Register GSAP plugins
+        gsap.registerPlugin(ScrollToPlugin);
+
+        // Initialize all UI components
+        this.initCursor();
+        this.initMagneticElements();
+        this.initPageTransitions();
+        this.initHamburgerMenu();
+        this.initTicketModal();
+        this.startCountdown();
+    }
+
+    initCursor() {
+        this.cursor = document.querySelector('.cursor');
+        if (!this.cursor) return;
+
+        this.cursorCircle = this.cursor.querySelector('.cursor__inner--circle');
+
+        // Set initial position
+        gsap.set(this.cursor, {
+            xPercent: -50,
+            yPercent: -50
+        });
+
+        // Cursor following logic
+        this.pos = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+        this.mouse = { x: this.pos.x, y: this.pos.y };
+        this.speed = 0.1;
+
+        this.xSet = gsap.quickSetter(this.cursor, "x", "px");
+        this.ySet = gsap.quickSetter(this.cursor, "y", "px");
+
+        window.addEventListener('mousemove', (e) => {
+            this.mouse.x = e.clientX;
+            this.mouse.y = e.clientY;
+        });
+
+        gsap.ticker.add(() => {
+          const dt = 1.0 - Math.pow(1.0 - this.speed, gsap.ticker.deltaRatio());
+          this.pos.x += (this.mouse.x - this.pos.x) * dt;
+          this.pos.y += (this.mouse.y - this.pos.y) * dt;
+          this.xSet(this.pos.x); this.ySet(this.pos.y);
+      });
+  }
+
+  initMagneticElements() {
+      document.querySelectorAll('.magnetic').forEach(el => {
+          let xTo = gsap.quickTo(el, "x", { duration: 1, ease: "elastic.out(1, 0.3)" });
+          let yTo = gsap.quickTo(el, "y", { duration: 1, ease: "elastic.out(1, 0.3)" });
+
+          el.addEventListener("mouseenter", () => this.cursor.classList.add('cursor--hover'));
+          el.addEventListener("mouseleave", () => {
+              this.cursor.classList.remove('cursor--hover');
+              xTo(0); yTo(0);
+          });
+          
+          el.addEventListener("mousemove", (e) => {
+              const { clientX, clientY } = e;
+              const { height, width, left, top } = el.getBoundingClientRect();
+              const x = clientX - (left + width / 2);
+              const y = clientY - (top + height / 2);
+              xTo(x * 0.4); yTo(y * 0.4);
+          });
+      });
+  }
+  
+  initPageTransitions() {
+      const navLinks = document.querySelectorAll('.nav-link, .mobile-nav-link');
+      const uiContainer = document.querySelector('.ui-container');
+      navLinks.forEach(link => {
+          link.addEventListener('click', (e) => {
+              e.preventDefault();
+              const targetId = link.getAttribute('href');
+              
+              const mobileNav = document.querySelector('.mobile-nav');
+              const hamburger = document.querySelector('.hamburger');
+
+              // Close mobile nav if open
+              if (mobileNav.classList.contains('active')) {
+                  mobileNav.classList.remove('active');
+                  hamburger.classList.remove('active');
+              }
+
+              // Special handling for ticket links to open modal
+              if (targetId === '#tickets') {
+                   document.querySelector('#ticket-modal').classList.add('active');
+                   return;
+              }
+
+              gsap.to(uiContainer, {
+                  duration: 1.5,
+                  scrollTo: { y: targetId, offsetY: 70 },
+                  ease: "power4.inOut"
+              });
+          });
+      });
+  }
+  
+  initHamburgerMenu() {
+      const hamburger = document.querySelector('.hamburger');
+      const mobileNav = document.querySelector('.mobile-nav');
+      const lines = hamburger.querySelectorAll('.line');
+
+      hamburger.addEventListener('click', () => {
+          hamburger.classList.toggle('active');
+          mobileNav.classList.toggle('active');
+
+          if(hamburger.classList.contains('active')) {
+              gsap.to(lines[0], {rotation: 45, y: 10, duration: 0.3});
+              gsap.to(lines[1], {opacity: 0, x: 20, duration: 0.3});
+              gsap.to(lines[2], {rotation: -45, y: -10, duration: 0.3});
+          } else {
+              gsap.to(lines[0], {rotation: 0, y: 0, duration: 0.3});
+              gsap.to(lines[1], {opacity: 1, x: 0, duration: 0.3});
+              gsap.to(lines[2], {rotation: 0, y: 0, duration: 0.3});
           }
       });
-      
-      // --- Initial Page Load Animations ---
-      const tl = gsap.timeline();
-      tl.from('.hero-title .char', {
-          y: 100,
-          opacity: 0,
-          stagger: 0.03,
-          ease: 'back.out(1.7)',
-          duration: 1
-      })
-      .from('.hero-subtitle', { y: 20, opacity: 0, duration: 0.8, ease: 'power2.out' }, '-=0.8')
-      .from('#countdown', { y: 20, opacity: 0, duration: 0.8, ease: 'power2.out' }, '-=0.6')
-      .from('#hero-cta', { y: 20, opacity: 0, scale: 0.9, duration: 0.8, ease: 'back.out(1.7)' }, '-=0.6')
-      .from('#navbar', { y: -100, opacity: 0, duration: 1, ease: 'power3.out' }, '-=1');
-  });
+  }
 
-  // --- Custom Cursor ---
-  const cursor = document.querySelector('.cursor');
-  const cursorCircle = cursor.querySelector('.cursor__inner--circle');
-  const interactiveElements = document.querySelectorAll('a, button, .speaker-card');
+  initTicketModal() {
+      const openBtns = document.querySelectorAll('.ticket-btn');
+      const ticketModal = document.querySelector('#ticket-modal');
+      const successModal = document.querySelector('#success-modal');
+      const closeBtn = ticketModal.querySelector('.close-btn');
+      const form = document.querySelector('#ticket-form');
 
-  gsap.set(cursor, { xPercent: -50, yPercent: -50 });
-  const pos = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
-  const mouse = { x: pos.x, y: pos.y };
-  const speed = 0.1;
-
-  const xSet = gsap.quickSetter(cursor, "x", "px");
-  const ySet = gsap.quickSetter(cursor, "y", "px");
-
-  window.addEventListener('mousemove', e => {
-      mouse.x = e.x;
-      mouse.y = e.y;
-  });
-
-  gsap.ticker.add(() => {
-      const dt = 1.0 - Math.pow(1.0 - speed, gsap.ticker.deltaRatio());
-      pos.x += (mouse.x - pos.x) * dt;
-      pos.y += (mouse.y - pos.y) * dt;
-      xSet(pos.x);
-      ySet(pos.y);
-  });
-  
-  interactiveElements.forEach(el => {
-      el.addEventListener('mouseenter', () => cursorCircle.classList.add('hover'));
-      el.addEventListener('mouseleave', () => cursorCircle.classList.remove('hover'));
-  });
-
-
-  // --- Horizontal Scrolling with GSAP ScrollTrigger ---
-  const sections = gsap.utils.toArray(".panel");
-  const track = document.querySelector("#scroll-track");
-
-  let scrollTween = gsap.to(sections, {
-      xPercent: -100 * (sections.length - 1),
-      ease: "none",
-      scrollTrigger: {
-          trigger: "#main-container",
-          pin: true,
-          scrub: 1,
-          snap: 1 / (sections.length - 1),
-          end: () => "+=" + track.offsetWidth
-      }
-  });
-
-  // --- Animate elements within each section on scroll ---
-  sections.forEach((section, i) => {
-      // Animate section titles
-      const sectionTitle = section.querySelector('.section-title');
-      if (sectionTitle) {
-          gsap.from(sectionTitle, {
-              y: 50,
-              opacity: 0,
-              duration: 1,
-              scrollTrigger: {
-                  trigger: section,
-                  containerAnimation: scrollTween,
-                  start: 'left center',
-              }
+      openBtns.forEach(btn => {
+          btn.addEventListener('click', (e) => {
+              e.preventDefault();
+              ticketModal.classList.add('active');
           });
-      }
-      
-      // Animate speaker cards
-      const speakerCards = section.querySelectorAll('.speaker-card');
-      if (speakerCards.length > 0) {
-          gsap.from(speakerCards, {
-              y: 100,
-              opacity: 0,
-              duration: 0.8,
-              stagger: 0.1,
-              ease: 'power2.out',
-              scrollTrigger: {
-                  trigger: section,
-                  containerAnimation: scrollTween,
-                  start: 'left 70%',
-              }
-          });
-      }
+      });
 
-      // Animate schedule items
-      const scheduleItems = section.querySelectorAll('.schedule-item');
-      if (scheduleItems.length > 0) {
-          gsap.from(scheduleItems, {
-              x: -100,
-              opacity: 0,
-              duration: 0.8,
-              stagger: 0.2,
-              ease: 'power2.out',
-              scrollTrigger: {
-                  trigger: section,
-                  containerAnimation: scrollTween,
-                  start: 'left 70%',
-              }
-          });
-      }
-  });
+      const closeModal = () => {
+          ticketModal.classList.remove('active');
+      };
 
-  // --- Vanilla Tilt JS for Speaker Cards ---
-  VanillaTilt.init(document.querySelectorAll(".speaker-card"), {
-      max: 15,
-      speed: 400,
-      glare: true,
-      "max-glare": 0.2
-  });
-
-  // --- Countdown Timer Logic ---
-  function startCountdown() {
-      const countdownDate = new Date("Sep 1, 2025 09:00:00").getTime();
-      const interval = setInterval(() => {
-          const now = new Date().getTime();
-          const distance = countdownDate - now;
-
-          const days = Math.floor(distance / (1000 * 60 * 60 * 24));
-          const hours = Math.floor((distance % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-          const minutes = Math.floor((distance % (1000 * 60 * 60)) / (1000 * 60));
-          const seconds = Math.floor((distance % (1000 * 60)) / 1000);
-
-          document.getElementById("days").innerText = days.toString().padStart(2, '0');
-          document.getElementById("hours").innerText = hours.toString().padStart(2, '0');
-          document.getElementById("minutes").innerText = minutes.toString().padStart(2, '0');
-          document.getElementById("seconds").innerText = seconds.toString().padStart(2, '0');
-          
-          if (distance < 0) {
-              clearInterval(interval);
-              document.getElementById("countdown").innerHTML = "<div class='text-2xl font-bold'>The Event is Live!</div>";
+      closeBtn.addEventListener('click', closeModal);
+      ticketModal.addEventListener('click', (e) => {
+          if (e.target === ticketModal) {
+              closeModal();
           }
+      });
+
+      form.addEventListener('submit', (e) => {
+          e.preventDefault();
+          ticketModal.classList.remove('active');
+          successModal.classList.add('active');
+
+          setTimeout(() => {
+              successModal.classList.remove('active');
+          }, 4000);
+      });
+  }
+
+  startCountdown() {
+      const eventDate = new Date("Oct 25, 2025 09:00:00").getTime();
+      const countdownInterval = setInterval(() => {
+          const now = new Date().getTime();
+          const distance = eventDate - now;
+
+          if (distance < 0) {
+              clearInterval(countdownInterval);
+              document.getElementById("countdown").innerHTML = "<p>The event has started!</p>";
+              return;
+          }
+
+          document.getElementById("days").innerText = Math.floor(distance / (1000 * 60 * 60 * 24)).toString().padStart(2, '0');
+          document.getElementById("hours").innerText = Math.floor((distance % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60)).toString().padStart(2, '0');
+          document.getElementById("minutes").innerText = Math.floor((distance % (1000 * 60 * 60)) / (1000 * 60)).toString().padStart(2, '0');
+          document.getElementById("seconds").innerText = Math.floor((distance % (1000 * 60)) / 1000).toString().padStart(2, '0');
       }, 1000);
   }
-  startCountdown();
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  new WebGLExperience(document.querySelector('#webgl-canvas'));
+  new UIManager();
 });
